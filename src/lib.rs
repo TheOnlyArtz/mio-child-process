@@ -76,6 +76,8 @@ use mio_extras::channel::{channel, Receiver, Sender};
 use std::io::{Error, ErrorKind, Read, Result, Write};
 use std::process::{Child, Command, ExitStatus};
 use std::thread::spawn;
+#[cfg(target_os="windows")]
+use std::os::windows::process::CommandExt;
 
 #[cfg(test)]
 mod test;
@@ -88,6 +90,9 @@ pub trait CommandAsync {
 
 impl CommandAsync for Command {
     fn spawn_async(&mut self) -> Result<Process> {
+        #[cfg(target_os="windows")]
+        self.creation_flags(0x08000000);
+
         let child = self.spawn()?;
         Ok(Process::from_child(child))
     }
@@ -149,7 +154,6 @@ impl Process {
     #[cfg(target_os = "windows")]
     pub fn kill(&mut self) -> Result<()> {
         use std::collections::HashMap;
-        use std::io::Error;
         use std::mem;
         use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
         use winapi::um::processthreadsapi::{OpenProcess, TerminateProcess};
@@ -290,13 +294,8 @@ fn try_send_buffer(
     channel: StdioChannel,
     sender: &Sender<ProcessEvent>,
 ) -> SendResult {
-    let str = match std::str::from_utf8(buffer) {
-        Ok(s) => s,
-        Err(e) => {
-            let _ = sender.send(ProcessEvent::Utf8Error(channel, e));
-            return SendResult::Abort;
-        }
-    };
+    let str = String::from_utf8_lossy(buffer).to_string();
+
     if str.is_empty() {
         println!("Aborting try_send_buffer because we're sending empty strings");
         println!("Channel: {:?}", channel);
